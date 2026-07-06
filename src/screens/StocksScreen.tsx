@@ -22,6 +22,7 @@ export default function StocksScreen() {
   const systemTheme = useColorScheme();
   const isDark = systemTheme === "dark";
 
+  const [editingMatin, setEditingMatin] = useState(false);
   const [tab, setTab] = useState<"matin" | "vente" | "achat" | "soir">("matin");
   const [reseauId, setReseauId] = useState<number | null>(null);
   const [montant, setMontant] = useState("");
@@ -197,43 +198,135 @@ export default function StocksScreen() {
           ]}
         >
           <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
-            🌅 Déclarer le stock du matin
+            🌅{" "}
+            {stocksData.length > 0
+              ? "Stock du matin enregistré"
+              : "Déclarer le stock du matin"}
           </Text>
-          {reseaux.map((r: any) => (
-            <View key={r.id} style={s.inputRow}>
-              <Text style={[s.inputLabel, { color: dynamicStyles.textMain }]}>
-                {r.nom}
-              </Text>
-              <TextInput
-                style={[
-                  s.input,
-                  {
-                    backgroundColor: dynamicStyles.inputBg,
-                    borderColor: dynamicStyles.inputBorder,
-                    color: dynamicStyles.textMain,
-                    width: 140,
-                    marginBottom: 0,
-                  },
-                ]}
-                keyboardType="numeric"
-                placeholder="0 unités"
-                placeholderTextColor={dynamicStyles.textSub}
-                value={stocks[r.id] || ""}
-                onChangeText={(v) => setStocks({ ...stocks, [r.id]: v })}
-              />
-            </View>
-          ))}
-          <TouchableOpacity
-            style={s.btn}
-            onPress={() => matinMutation.mutate()}
-            disabled={matinMutation.isPending}
-          >
-            {matinMutation.isPending ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text style={s.btnText}>💾 Enregistrer le matin</Text>
-            )}
-          </TouchableOpacity>
+
+          {stocksData.length > 0 ? (
+            // Déjà enregistré : afficher les valeurs + bouton Modifier
+            <>
+              {stocksData.map((sData: any) => (
+                <View key={sData.id} style={s.inputRow}>
+                  <Text
+                    style={[s.inputLabel, { color: dynamicStyles.textMain }]}
+                  >
+                    {sData.reseau?.nom}
+                  </Text>
+                  {editingMatin ? (
+                    <TextInput
+                      style={[
+                        s.input,
+                        {
+                          backgroundColor: dynamicStyles.inputBg,
+                          borderColor: dynamicStyles.inputBorder,
+                          color: dynamicStyles.textMain,
+                          width: 120,
+                          marginBottom: 0,
+                        },
+                      ]}
+                      keyboardType="numeric"
+                      value={stocks[sData.id] || String(sData.stock_matin)}
+                      onChangeText={(v) =>
+                        setStocks({ ...stocks, [sData.id]: v })
+                      }
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        s.stockVal,
+                        { color: dynamicStyles.textMain, fontWeight: "700" },
+                      ]}
+                    >
+                      {sData.stock_matin} U
+                    </Text>
+                  )}
+                </View>
+              ))}
+
+              {editingMatin ? (
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TouchableOpacity
+                    style={[s.btn, { flex: 1, backgroundColor: "#16A34A" }]}
+                    onPress={() => {
+                      matinMutation.mutate();
+                      setEditingMatin(false);
+                    }}
+                    disabled={matinMutation.isPending}
+                  >
+                    {matinMutation.isPending ? (
+                      <ActivityIndicator color="#FFF" />
+                    ) : (
+                      <Text style={s.btnText}>💾 Sauvegarder</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.btn, { flex: 1, backgroundColor: "#6B7280" }]}
+                    onPress={() => setEditingMatin(false)}
+                  >
+                    <Text style={s.btnText}>Annuler</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[s.btn, { backgroundColor: "#F59E0B" }]}
+                  onPress={() => {
+                    setEditingMatin(true);
+                    stocksData.forEach((s: any) =>
+                      setStocks((prev) => ({
+                        ...prev,
+                        [s.id]: String(s.stock_matin),
+                      })),
+                    );
+                  }}
+                >
+                  <Text style={s.btnText}>✏️ Modifier le stock</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          ) : (
+            // Pas encore enregistré : formulaire de saisie
+            <>
+              {reseaux.map((r: any) => (
+                <View key={r.id} style={s.inputRow}>
+                  <Text
+                    style={[s.inputLabel, { color: dynamicStyles.textMain }]}
+                  >
+                    {r.nom}
+                  </Text>
+                  <TextInput
+                    style={[
+                      s.input,
+                      {
+                        backgroundColor: dynamicStyles.inputBg,
+                        borderColor: dynamicStyles.inputBorder,
+                        color: dynamicStyles.textMain,
+                        width: 140,
+                        marginBottom: 0,
+                      },
+                    ]}
+                    keyboardType="numeric"
+                    placeholder="0 unités"
+                    placeholderTextColor={dynamicStyles.textSub}
+                    value={stocks[r.id] || ""}
+                    onChangeText={(v) => setStocks({ ...stocks, [r.id]: v })}
+                  />
+                </View>
+              ))}
+              <TouchableOpacity
+                style={s.btn}
+                onPress={() => matinMutation.mutate()}
+                disabled={matinMutation.isPending}
+              >
+                {matinMutation.isPending ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={s.btnText}>💾 Enregistrer le matin</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
 

@@ -17,7 +17,6 @@ import { dashboardService } from "../api/client";
 import { formatCurrency, formatDate } from "../utils/format";
 import { spacing } from "../theme";
 
-// Calcul de la zone de sécurité supérieure selon la plateforme
 const SAFE_TOP_SPACE =
   Platform.OS === "ios" ? 44 : RNStatusBar.currentHeight || 0;
 
@@ -31,10 +30,10 @@ export default function DashboardScreen({ navigation }: any) {
     refetchInterval: 60000,
   });
 
-  // Palette sémantique et dynamique
+  // Palette sémantique et dynamique (Bleu profond & Inter)
   const dynamicStyles = {
-    mainBg: isDark ? "#0F172A" : "#1E3A8A", // Fond en-tête
-    contentBg: isDark ? "#1E293B" : "#F1F5F9", // Fond conteneur principal
+    mainBg: isDark ? "#0F172A" : "#1E3A8A",
+    contentBg: isDark ? "#1E293B" : "#F1F5F9",
     cardBg: isDark ? "#334155" : "#FFFFFF",
     textMain: isDark ? "#F8FAFC" : "#1E293B",
     textSub: isDark ? "#94A3B8" : "#64748B",
@@ -44,7 +43,7 @@ export default function DashboardScreen({ navigation }: any) {
   };
 
   const d = data?.data || {};
-  const p = Math.min(d.objectif?.progression || 65, 100);
+  const p = Math.min(d.objectif?.progression || 0, 100);
 
   return (
     <View style={[s.mainContainer, { backgroundColor: dynamicStyles.mainBg }]}>
@@ -59,7 +58,7 @@ export default function DashboardScreen({ navigation }: any) {
         <Text style={s.appTitle}>📱 Shop Manager</Text>
         <Text style={[s.agentInfo, { color: dynamicStyles.textSub }]}>
           Utilisateur: <Text style={s.boldText}>Agent</Text> |{" "}
-          {d.date ? formatDate(d.date) : "Mardi 15 Juillet 2026"}
+          {d.date ? formatDate(d.date) : "—"}
         </Text>
       </View>
 
@@ -98,11 +97,11 @@ export default function DashboardScreen({ navigation }: any) {
               En Caisse (Liquide)
             </Text>
             <Text style={[s.cardValue, { color: "#2563EB" }]}>
-              {d.en_caisse ? formatCurrency(d.en_caisse) : "145 000 FC"}
+              {formatCurrency(d.en_caisse || 0)}
             </Text>
           </View>
 
-          {/* Unités Crédit */}
+          {/* Unités Crédit - Somme dynamique des stocks restants */}
           <View
             style={[
               s.statCard,
@@ -116,7 +115,9 @@ export default function DashboardScreen({ navigation }: any) {
               Unités Crédit Restantes
             </Text>
             <Text style={[s.cardValue, { color: "#16A34A" }]}>
-              {d.unites_vendues ? `${d.unites_vendues} U` : "4 250 U"}
+              {d.stocks
+                ? `${d.stocks.reduce((sum: number, stockItem: any) => sum + (stockItem.stock_soir ?? stockItem.stock_matin ?? 0), 0)} U`
+                : "0 U"}
             </Text>
           </View>
 
@@ -134,7 +135,7 @@ export default function DashboardScreen({ navigation }: any) {
               Solde Mobile Money
             </Text>
             <Text style={[s.cardValue, { color: "#D97706" }]}>
-              {d.solde_mm ? formatCurrency(d.solde_mm) : "850 000 FC"}
+              {formatCurrency(d.solde_mm || 0)}
             </Text>
             <View style={s.badgeRow}>
               <View style={[s.miniBadge, { backgroundColor: "#22C55E" }]}>
@@ -163,9 +164,7 @@ export default function DashboardScreen({ navigation }: any) {
               Dettes Clients Actives
             </Text>
             <Text style={[s.cardValue, { color: "#DC2626" }]}>
-              {d.dettes_actives
-                ? formatCurrency(d.dettes_actives)
-                : "35 000 FC"}
+              {formatCurrency(d.objectif_detail?.total_autres || 0)}
             </Text>
           </View>
         </View>
@@ -199,13 +198,8 @@ export default function DashboardScreen({ navigation }: any) {
             <Text
               style={[s.objectifFooterText, { color: dynamicStyles.textMain }]}
             >
-              {d.objectif?.realise
-                ? formatCurrency(d.objectif.realise)
-                : "130 000 FC"}{" "}
-              /{" "}
-              {d.objectif?.objectif_hebdomadaire
-                ? formatCurrency(d.objectif.objectif_hebdomadaire)
-                : "200 000 FC"}
+              {formatCurrency(d.objectif?.realise || 0)} /{" "}
+              {formatCurrency(d.objectif?.objectif_hebdomadaire || 0)}
             </Text>
             <View style={s.miniIndicator} />
           </View>
@@ -243,7 +237,7 @@ export default function DashboardScreen({ navigation }: any) {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* ALERTES */}
+        {/* ALERTES DYNAMIQUES */}
         <Text style={[s.sectionTitle, { color: dynamicStyles.textMain }]}>
           ALERTES
         </Text>
@@ -256,20 +250,49 @@ export default function DashboardScreen({ navigation }: any) {
             },
           ]}
         >
-          <View style={s.alertItem}>
-            <Text style={[s.alertText, { color: dynamicStyles.textMain }]}>
-              ⚠️ <Text style={s.boldText}>Stock bas:</Text> Airtel Crédit (500U)
-            </Text>
-          </View>
-          <View
-            style={[s.divider, { backgroundColor: dynamicStyles.dividerBg }]}
-          />
-          <View style={s.alertItem}>
-            <Text style={[s.alertText, { color: dynamicStyles.textMain }]}>
-              📉 <Text style={s.boldText}>Écart hier:</Text> -2 500 FC (À
-              justifier)
-            </Text>
-          </View>
+          {d.alertes && d.alertes.length > 0 ? (
+            d.alertes.map((a: any, i: number) => (
+              <View key={i}>
+                <View style={s.alertItem}>
+                  <Text
+                    style={[s.alertText, { color: dynamicStyles.textMain }]}
+                  >
+                    {a.type === "danger"
+                      ? "🔴"
+                      : a.type === "warning"
+                        ? "⚠️"
+                        : "ℹ️"}{" "}
+                    {a.message}
+                  </Text>
+                  {a.detail ? (
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: dynamicStyles.textSub,
+                        marginTop: 2,
+                      }}
+                    >
+                      {a.detail}
+                    </Text>
+                  ) : null}
+                </View>
+                {i < d.alertes.length - 1 && (
+                  <View
+                    style={[
+                      s.divider,
+                      { backgroundColor: dynamicStyles.dividerBg },
+                    ]}
+                  />
+                )}
+              </View>
+            ))
+          ) : (
+            <View style={s.alertItem}>
+              <Text style={[s.alertText, { color: "#16A34A" }]}>
+                ✅ Aucune alerte pour le moment
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={{ height: 40 }} />
@@ -284,7 +307,7 @@ const s = StyleSheet.create({
   },
   headerContainer: {
     paddingHorizontal: spacing.lg,
-    paddingTop: 15 + SAFE_TOP_SPACE, // Addition dynamique propre de sécurité
+    paddingTop: 15 + SAFE_TOP_SPACE,
     paddingBottom: 20,
   },
   appTitle: {
@@ -334,7 +357,7 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   cardValue: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "800",
   },
   badgeRow: {
