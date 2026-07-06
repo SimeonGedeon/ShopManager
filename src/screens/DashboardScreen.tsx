@@ -7,13 +7,19 @@ import {
   Text,
   View,
   TouchableOpacity,
-  useColorScheme, // 👈 Hook magique pour écouter le mode du système
+  useColorScheme,
+  Platform,
+  StatusBar as RNStatusBar,
 } from "react-native";
-import { StatusBar } from "expo-status-bar"; // 👈 Prise en charge propre de la barre supérieure
+import { StatusBar } from "expo-status-bar";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardService } from "../api/client";
 import { formatCurrency, formatDate } from "../utils/format";
 import { spacing } from "../theme";
+
+// Calcul de la zone de sécurité supérieure selon la plateforme
+const SAFE_TOP_SPACE =
+  Platform.OS === "ios" ? 44 : RNStatusBar.currentHeight || 0;
 
 export default function DashboardScreen({ navigation }: any) {
   const systemTheme = useColorScheme();
@@ -25,7 +31,7 @@ export default function DashboardScreen({ navigation }: any) {
     refetchInterval: 60000,
   });
 
-  // Palette sémantique et dynamique s'adaptant instantanément
+  // Palette sémantique et dynamique
   const dynamicStyles = {
     mainBg: isDark ? "#0F172A" : "#1E3A8A", // Fond en-tête
     contentBg: isDark ? "#1E293B" : "#F1F5F9", // Fond conteneur principal
@@ -42,14 +48,13 @@ export default function DashboardScreen({ navigation }: any) {
 
   return (
     <View style={[s.mainContainer, { backgroundColor: dynamicStyles.mainBg }]}>
-      {/* 🚀 Empêche la superposition sauvage sous l'encoche de l'appareil */}
       <StatusBar
         style="light"
         backgroundColor={dynamicStyles.mainBg}
         translucent={false}
       />
 
-      {/* En-tête Immersif */}
+      {/* En-tête Immersif Adaptatif */}
       <View style={s.headerContainer}>
         <Text style={s.appTitle}>📱 Shop Manager</Text>
         <Text style={[s.agentInfo, { color: dynamicStyles.textSub }]}>
@@ -279,7 +284,7 @@ const s = StyleSheet.create({
   },
   headerContainer: {
     paddingHorizontal: spacing.lg,
-    paddingTop: 20,
+    paddingTop: 15 + SAFE_TOP_SPACE, // Addition dynamique propre de sécurité
     paddingBottom: 20,
   },
   appTitle: {
