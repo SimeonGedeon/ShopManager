@@ -1,7 +1,7 @@
 // src/screens/MMScreen.tsx
-import React, { useState } from "react";
+
+import React, { useState, useMemo } from "react";
 import {
-  ScrollView,
   RefreshControl,
   StyleSheet,
   Text,
@@ -11,20 +11,24 @@ import {
   ActivityIndicator,
   useColorScheme,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { mmService, caisseService } from "../api/client";
 import { formatCurrency, formatTime } from "../utils/format";
-import { colors, spacing } from "../theme";
+import { spacing } from "../theme";
+import ScreenContainer from "../components/ScreenContainer";
+
+const OPERATEURS = ["M-PESA", "Orange Money", "Airtel Money"] as const;
 
 export default function MMScreen() {
   const queryClient = useQueryClient();
-  const systemTheme = useColorScheme();
-  const isDark = systemTheme === "dark";
+  const isDark = useColorScheme() === "dark";
 
-  const [tab, setTab] = useState<"transactions" | "matin" | "soir" | "cloture">(
+  const [tab, setTab] = useState<"transactions" | "matin" | "soir">(
     "transactions",
   );
+  const [message, setMessage] = useState("");
+
+  // Formulaire transaction (Cahier journalier indépendant)
   const [form, setForm] = useState({
     operateur: "M-PESA",
     type: "depot",
@@ -32,6 +36,8 @@ export default function MMScreen() {
     numero: "",
     montant: "",
   });
+
+  // États Matin / Soir
   const [matin, setMatin] = useState({
     liquide_matin: "",
     mm_mpesa_matin: "",
@@ -43,18 +49,21 @@ export default function MMScreen() {
     mm_orange_soir: "",
     mm_airtel_soir: "",
   });
-  const [message, setMessage] = useState("");
 
-  // Styles dynamiques
+  // Pagination locale
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 5;
+
+  // Thème unifié
   const dynamicStyles = {
-    mainBg: isDark ? "#0F172A" : "#1E3A8A",
-    contentBg: isDark ? "#1E293B" : "#F1F5F9",
-    cardBg: isDark ? "#334155" : "#FFFFFF",
+    cardBg: isDark ? "#1E293B" : "#FFFFFF",
     textMain: isDark ? "#F8FAFC" : "#1E293B",
     textSub: isDark ? "#94A3B8" : "#64748B",
-    inputBg: isDark ? "#1E293B" : "#F8FAFC",
-    inputBorder: isDark ? "#475569" : "#E2E8F0",
-    typeBtnUnselected: isDark ? "#1E293B" : "#E2E8F0",
+    inputBg: isDark ? "#0F172A" : "#F8FAFC",
+    inputBorder: isDark ? "#334155" : "#E2E8F0",
+    tabUnselectedBg: isDark ? "#1E293B" : "#E2E8F0",
+    chipUnselectedBg: isDark ? "#334155" : "#E2E8F0",
+    borderSeparator: isDark ? "#334155" : "#E2E8F0",
   };
 
   const { data, isLoading, refetch } = useQuery({
@@ -67,18 +76,40 @@ export default function MMScreen() {
     queryFn: () => caisseService.getEtat().then((r) => r.data),
   });
 
+  // Calculs financiers isolés via useMemo pour préserver le thread UI
+  const transactions = data?.transactions || [];
+  const caisse = caisseData?.caisse || {};
+  const isCloture = caisse?.statut === "cloture";
+
+  const stats = useMemo(() => {
+    let dep = 0;
+    let ret = 0;
+    transactions.forEach((t: any) => {
+      if (t.type === "depot") dep += t.montant;
+      if (t.type === "retrait") ret += t.montant;
+    });
+    const initialMM =
+      (caisse?.mm_mpesa_matin || 0) +
+      (caisse?.mm_orange_matin || 0) +
+      (caisse?.mm_airtel_matin || 0);
+    return {
+      totalDepots: dep,
+      totalRetraits: ret,
+      totalTheorique: initialMM + dep - ret,
+    };
+  }, [transactions, caisse]);
+
   const createMutation = useMutation({
     mutationFn: () =>
       mmService.create({ ...form, montant: parseInt(form.montant) || 0 }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mm"] });
       setForm({ ...form, client_nom: "", numero: "", montant: "" });
-      setMessage("✅ Transaction enregistrée");
+      setMessage("✅ Opération enregistrée");
       setTimeout(() => setMessage(""), 3000);
     },
-    onError: (e: any) => {
-      setMessage("❌ " + (e.response?.data?.message || "Erreur"));
-    },
+    onError: (e: any) =>
+      setMessage("❌ " + (e.response?.data?.message || "Erreur")),
   });
 
   const matinMutation = useMutation({
@@ -97,59 +128,49 @@ export default function MMScreen() {
     },
   });
 
-  const clotureMutation = useMutation({
-    mutationFn: () => caisseService.cloturer(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["caisse-etat"] });
-      setMessage("✅ Journée clôturée");
-    },
-  });
-
-  const rouvrirMutation = useMutation({
-    mutationFn: () => caisseService.rouvrir(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["caisse-etat"] });
-      setMessage("✅ Journée rouverte");
-    },
-  });
-
-  const transactions = data?.transactions || [];
-  const soldes = data?.soldes || {};
-  const caisse = caisseData?.caisse || {};
-  const isCloture = caisse?.statut === "cloture";
-  const operateurs = ["M-PESA", "Orange Money", "Airtel Money"];
+  const totalPages = Math.ceil(transactions.length / PER_PAGE);
+  const paginatedTx = transactions.slice(
+    (page - 1) * PER_PAGE,
+    page * PER_PAGE,
+  );
 
   return (
-    <View style={[s.main, { backgroundColor: dynamicStyles.mainBg }]}>
-      <StatusBar
-        style="light"
-        backgroundColor={dynamicStyles.mainBg}
-        translucent={false}
-      />
-
-      <View style={s.header}>
-        <Text style={s.title}>📱 Mobile Money</Text>
-        <Text
-          style={[s.subtitle, { color: isCloture ? "#EF4444" : "#10B981" }]}
+    <ScreenContainer
+      refreshControl={
+        <RefreshControl
+          refreshing={isLoading}
+          onRefresh={refetch}
+          tintColor="#3B82F6"
+        />
+      }
+      headerComponent={<Text style={s.title}>📱 Mobile Money</Text>}
+    >
+      {/* RÉSUMÉ DES SOLDES MATIN (Plus compact) */}
+      <View style={s.soldeRow}>
+        <View
+          style={[
+            s.soldeCard,
+            {
+              backgroundColor: dynamicStyles.cardBg,
+              borderColor: dynamicStyles.inputBorder,
+            },
+          ]}
         >
-          {isCloture ? "🔒 Clôturé" : "🟢 Session Ouverte"}
-        </Text>
-      </View>
-
-      <ScrollView
-        style={[s.content, { backgroundColor: dynamicStyles.contentBg }]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isLoading}
-            onRefresh={refetch}
-            tintColor="#3B82F6"
-          />
-        }
-      >
-        {/* Soldes en ligne */}
-        <View style={s.soldeRow}>
-          {operateurs.map((op) => (
+          <Text style={[s.soldeName, { color: dynamicStyles.textSub }]}>
+            💵 Liquide
+          </Text>
+          <Text style={[s.soldeValue, { color: dynamicStyles.textMain }]}>
+            {formatCurrency(caisse?.liquide_matin || 0)}
+          </Text>
+        </View>
+        {OPERATEURS.map((op) => {
+          const key =
+            op === "M-PESA"
+              ? "mm_mpesa_matin"
+              : op === "Orange Money"
+                ? "mm_orange_matin"
+                : "mm_airtel_matin";
+          return (
             <View
               key={op}
               style={[
@@ -164,556 +185,694 @@ export default function MMScreen() {
                 {op.split(" ")[0]}
               </Text>
               <Text style={s.soldeValue}>
-                {formatCurrency(soldes[op] || 0)}
+                {formatCurrency(caisse?.[key] || 0)}
               </Text>
             </View>
-          ))}
-        </View>
+          );
+        })}
+      </View>
 
-        {/* Onglets compacts (Tabs) */}
-        <View style={s.tabs}>
-          {(["transactions", "matin", "soir", "cloture"] as const).map((t) => (
-            <TouchableOpacity
-              key={t}
+      {/* TABS CONTROLLER */}
+      <View style={s.tabs}>
+        {(["transactions", "matin", "soir"] as const).map((t) => (
+          <TouchableOpacity
+            key={t}
+            style={[
+              s.tab,
+              tab === t
+                ? s.tabActive
+                : { backgroundColor: dynamicStyles.tabUnselectedBg },
+            ]}
+            onPress={() => setTab(t)}
+          >
+            <Text
               style={[
-                s.tab,
-                tab === t
-                  ? s.tabActive
-                  : { backgroundColor: isDark ? "#334155" : "#E2E8F0" },
+                s.tabText,
+                tab === t ? s.tabTextActive : { color: dynamicStyles.textSub },
               ]}
-              onPress={() => setTab(t)}
             >
-              <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-                {t === "transactions"
-                  ? "📋 Tx"
-                  : t === "matin"
-                    ? "🌅 Matin"
-                    : t === "soir"
-                      ? "🌆 Soir"
-                      : "🔒 Fin"}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {message ? <Text style={s.msg}>{message}</Text> : null}
-
-        {/* ONGLET MATIN */}
-        {tab === "matin" && (
-          <View
-            style={[
-              s.card,
-              {
-                backgroundColor: dynamicStyles.cardBg,
-                borderColor: dynamicStyles.inputBorder,
-              },
-            ]}
-          >
-            <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
-              🌅 Déclaration Caisse Matin
+              {t === "transactions"
+                ? "📋 Tx"
+                : t === "matin"
+                  ? "🌅 Matin"
+                  : "🌆 Soir"}
             </Text>
-            {[
-              "liquide_matin",
-              "mm_mpesa_matin",
-              "mm_orange_matin",
-              "mm_airtel_matin",
-            ].map((k) => (
-              <View key={k} style={s.inputWrapper}>
-                <Text style={[s.inputLabel, { color: dynamicStyles.textMain }]}>
-                  {k.replace(/_/g, " ").toUpperCase()}
-                </Text>
-                <TextInput
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {message ? <Text style={s.msg}>{message}</Text> : null}
+
+      {/* TAB 1 : TRANSACTIONS & CAHIER */}
+      {tab === "transactions" && (
+        <>
+          {!isCloture && (
+            <View
+              style={[
+                s.card,
+                {
+                  backgroundColor: dynamicStyles.cardBg,
+                  borderColor: dynamicStyles.inputBorder,
+                },
+              ]}
+            >
+              <View style={s.inlineHeader}>
+                <Text
                   style={[
-                    s.input,
-                    {
-                      backgroundColor: dynamicStyles.inputBg,
-                      borderColor: dynamicStyles.inputBorder,
-                      color: dynamicStyles.textMain,
-                    },
+                    s.cardTitle,
+                    { color: dynamicStyles.textMain, marginBottom: 0 },
                   ]}
-                  keyboardType="numeric"
-                  placeholder="0 FC"
-                  placeholderTextColor="#64748B"
-                  value={(matin as any)[k]}
-                  onChangeText={(v) => setMatin({ ...matin, [k]: v })}
-                  editable={!isCloture}
-                />
-              </View>
-            ))}
-            {!isCloture && (
-              <TouchableOpacity
-                style={s.btn}
-                onPress={() => matinMutation.mutate()}
-                disabled={matinMutation.isPending}
-              >
-                {matinMutation.isPending ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : (
-                  <Text style={s.btnText}>💾 Enregistrer le Matin</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* ONGLET SOIR */}
-        {tab === "soir" && (
-          <View
-            style={[
-              s.card,
-              {
-                backgroundColor: dynamicStyles.cardBg,
-                borderColor: dynamicStyles.inputBorder,
-              },
-            ]}
-          >
-            <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
-              🌆 Déclaration Caisse Soir
-            </Text>
-            {["mm_mpesa_soir", "mm_orange_soir", "mm_airtel_soir"].map((k) => (
-              <View key={k} style={s.inputWrapper}>
-                <Text style={[s.inputLabel, { color: dynamicStyles.textMain }]}>
-                  {k.replace(/_/g, " ").toUpperCase()}
+                >
+                  Nouvelle transaction
                 </Text>
-                <TextInput
-                  style={[
-                    s.input,
-                    {
-                      backgroundColor: dynamicStyles.inputBg,
-                      borderColor: dynamicStyles.inputBorder,
-                      color: dynamicStyles.textMain,
-                    },
-                  ]}
-                  keyboardType="numeric"
-                  placeholder="0 FC"
-                  placeholderTextColor="#64748B"
-                  value={(soir as any)[k]}
-                  onChangeText={(v) => setSoir({ ...soir, [k]: v })}
-                  editable={!isCloture}
-                />
-              </View>
-            ))}
-            {!isCloture && (
-              <TouchableOpacity
-                style={s.btn}
-                onPress={() => soirMutation.mutate()}
-                disabled={soirMutation.isPending}
-              >
-                {soirMutation.isPending ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : (
-                  <Text style={s.btnText}>💾 Enregistrer le Soir</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* ONGLET CLOTURE */}
-        {tab === "cloture" && (
-          <View
-            style={[
-              s.card,
-              {
-                backgroundColor: dynamicStyles.cardBg,
-                borderColor: dynamicStyles.inputBorder,
-              },
-            ]}
-          >
-            <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
-              🔒 Verrouillage de la journée
-            </Text>
-            <Text style={[s.infoText, { color: dynamicStyles.textSub }]}>
-              La clôture empêche toute modification ultérieure des soldes ou
-              l'ajout de transactions rétroactives.
-            </Text>
-            {isCloture ? (
-              <TouchableOpacity
-                style={[s.btn, { backgroundColor: "#F59E0B" }]}
-                onPress={() => rouvrirMutation.mutate()}
-                disabled={rouvrirMutation.isPending}
-              >
-                {rouvrirMutation.isPending ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : (
-                  <Text style={s.btnText}>🔓 Réouvrir la session</Text>
-                )}
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[s.btn, { backgroundColor: colors.danger }]}
-                onPress={() => clotureMutation.mutate()}
-                disabled={clotureMutation.isPending}
-              >
-                {clotureMutation.isPending ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : (
-                  <Text style={s.btnText}>🔒 Clôturer la journée</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* ONGLET TRANSACTIONS */}
-        {tab === "transactions" && (
-          <>
-            {!isCloture && (
-              <View
-                style={[
-                  s.card,
-                  {
-                    backgroundColor: dynamicStyles.cardBg,
-                    borderColor: dynamicStyles.inputBorder,
-                  },
-                ]}
-              >
-                <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
-                  Nouvelle opération
-                </Text>
-
-                {/* Opérateurs */}
-                <View style={s.chips}>
-                  {operateurs.map((op) => (
-                    <TouchableOpacity
-                      key={op}
-                      style={[
-                        s.chip,
-                        form.operateur === op
-                          ? s.chipActive
-                          : {
-                              backgroundColor: dynamicStyles.typeBtnUnselected,
-                            },
-                      ]}
-                      onPress={() => setForm({ ...form, operateur: op })}
-                    >
-                      <Text
-                        style={[
-                          s.chipText,
-                          form.operateur === op
-                            ? s.chipTextActive
-                            : { color: dynamicStyles.textMain },
-                        ]}
-                      >
-                        {op}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Types dépôts / retraits */}
-                <View style={s.typeRow}>
+                <View style={s.typeRowCompact}>
                   <TouchableOpacity
                     style={[
-                      s.typeBtn,
-                      form.type === "depot"
-                        ? s.typeDepot
-                        : { backgroundColor: dynamicStyles.typeBtnUnselected },
+                      s.miniTypeBtn,
+                      form.type === "depot" && s.typeDepot,
                     ]}
                     onPress={() => setForm({ ...form, type: "depot" })}
                   >
-                    <Text
-                      style={[
-                        s.typeText,
-                        form.type === "depot"
-                          ? { color: "#FFF" }
-                          : { color: dynamicStyles.textMain },
-                      ]}
-                    >
-                      📥 Dépôt
-                    </Text>
+                    <Text style={s.miniTypeBtnText}>Dépôt</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
-                      s.typeBtn,
-                      form.type === "retrait"
-                        ? s.typeRetrait
-                        : { backgroundColor: dynamicStyles.typeBtnUnselected },
+                      s.miniTypeBtn,
+                      form.type === "retrait" && s.typeRetrait,
                     ]}
                     onPress={() => setForm({ ...form, type: "retrait" })}
                   >
-                    <Text
-                      style={[
-                        s.typeText,
-                        form.type === "retrait"
-                          ? { color: "#FFF" }
-                          : { color: dynamicStyles.textMain },
-                      ]}
-                    >
-                      📤 Retrait
-                    </Text>
+                    <Text style={s.miniTypeBtnText}>Retrait</Text>
                   </TouchableOpacity>
                 </View>
-
-                <View style={s.inputWrapper}>
-                  <Text
-                    style={[s.inputLabel, { color: dynamicStyles.textMain }]}
-                  >
-                    Nom du Client
-                  </Text>
-                  <TextInput
-                    style={[
-                      s.input,
-                      {
-                        backgroundColor: dynamicStyles.inputBg,
-                        borderColor: dynamicStyles.inputBorder,
-                        color: dynamicStyles.textMain,
-                      },
-                    ]}
-                    placeholder="Ex: Jean Mukendi"
-                    placeholderTextColor="#64748B"
-                    value={form.client_nom}
-                    onChangeText={(v) => setForm({ ...form, client_nom: v })}
-                  />
-                </View>
-
-                <View style={s.inputWrapper}>
-                  <Text
-                    style={[s.inputLabel, { color: dynamicStyles.textMain }]}
-                  >
-                    Numéro de téléphone
-                  </Text>
-                  <TextInput
-                    style={[
-                      s.input,
-                      {
-                        backgroundColor: dynamicStyles.inputBg,
-                        borderColor: dynamicStyles.inputBorder,
-                        color: dynamicStyles.textMain,
-                      },
-                    ]}
-                    placeholder="Ex: 081XXXXXXX"
-                    placeholderTextColor="#64748B"
-                    value={form.numero}
-                    onChangeText={(v) => setForm({ ...form, numero: v })}
-                    keyboardType="phone-pad"
-                  />
-                </View>
-
-                <View style={s.inputWrapper}>
-                  <Text
-                    style={[s.inputLabel, { color: dynamicStyles.textMain }]}
-                  >
-                    Montant (FC)
-                  </Text>
-                  <TextInput
-                    style={[
-                      s.input,
-                      {
-                        backgroundColor: dynamicStyles.inputBg,
-                        borderColor: dynamicStyles.inputBorder,
-                        color: dynamicStyles.textMain,
-                      },
-                    ]}
-                    placeholder="Montant de la transaction"
-                    placeholderTextColor="#64748B"
-                    value={form.montant}
-                    onChangeText={(v) => setForm({ ...form, montant: v })}
-                    keyboardType="numeric"
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={[s.btn, s.btnGreen]}
-                  onPress={() => createMutation.mutate()}
-                  disabled={createMutation.isPending || !form.montant}
-                >
-                  {createMutation.isPending ? (
-                    <ActivityIndicator color="#FFF" size="small" />
-                  ) : (
-                    <Text style={s.btnText}>⚡ Enregistrer l'opération</Text>
-                  )}
-                </TouchableOpacity>
               </View>
-            )}
 
-            {/* Historique du jour */}
-            <Text style={[s.sectionTitle, { color: dynamicStyles.textMain }]}>
-              📋 FLUX DE TRANSACTIONS DU JOUR
+              <View style={s.chipsCompact}>
+                {OPERATEURS.map((op) => (
+                  <TouchableOpacity
+                    key={op}
+                    style={[
+                      s.chip,
+                      form.operateur === op
+                        ? s.chipActive
+                        : { backgroundColor: dynamicStyles.chipUnselectedBg },
+                    ]}
+                    onPress={() => setForm({ ...form, operateur: op })}
+                  >
+                    <Text
+                      style={[
+                        s.chipText,
+                        form.operateur === op
+                          ? s.chipTextActive
+                          : { color: dynamicStyles.textSub },
+                      ]}
+                    >
+                      {op.split(" ")[0]}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={s.formRow}>
+                <TextInput
+                  style={[
+                    s.input,
+                    s.formInput,
+                    {
+                      backgroundColor: dynamicStyles.inputBg,
+                      borderColor: dynamicStyles.inputBorder,
+                      color: dynamicStyles.textMain,
+                    },
+                  ]}
+                  placeholder="Client"
+                  placeholderTextColor="#94A3B8"
+                  value={form.client_nom}
+                  onChangeText={(v) => setForm({ ...form, client_nom: v })}
+                />
+                <TextInput
+                  style={[
+                    s.input,
+                    s.formInput,
+                    {
+                      backgroundColor: dynamicStyles.inputBg,
+                      borderColor: dynamicStyles.inputBorder,
+                      color: dynamicStyles.textMain,
+                    },
+                  ]}
+                  placeholder="N°"
+                  placeholderTextColor="#94A3B8"
+                  value={form.numero}
+                  onChangeText={(v) => setForm({ ...form, numero: v })}
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  style={[
+                    s.input,
+                    s.formInput,
+                    {
+                      backgroundColor: dynamicStyles.inputBg,
+                      borderColor: dynamicStyles.inputBorder,
+                      color: dynamicStyles.textMain,
+                    },
+                  ]}
+                  placeholder="FC"
+                  placeholderTextColor="#94A3B8"
+                  value={form.montant}
+                  onChangeText={(v) => setForm({ ...form, montant: v })}
+                  keyboardType="numeric"
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[s.btn, s.btnGreen, { height: 40, marginTop: 4 }]}
+                onPress={() => createMutation.mutate()}
+                disabled={createMutation.isPending || !form.montant}
+              >
+                {createMutation.isPending ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={s.btnText}>⚡ Enregistrer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* TABLEAU DES TRANSACTIONS */}
+          <Text style={[s.sectionTitle, { color: dynamicStyles.textMain }]}>
+            📋 Flux du jour
+          </Text>
+          {paginatedTx.length === 0 ? (
+            <Text style={[s.empty, { color: dynamicStyles.textSub }]}>
+              Aucune transaction aujourd'hui.
             </Text>
-            {transactions.length === 0 ? (
-              <Text style={[s.empty, { color: dynamicStyles.textSub }]}>
-                Aucune opération enregistrée aujourd'hui.
-              </Text>
-            ) : (
-              transactions.map((tx: any) => (
+          ) : (
+            <>
+              <View
+                style={[
+                  s.tableHeader,
+                  { backgroundColor: isDark ? "#1E293B" : "#F1F5F9" },
+                ]}
+              >
+                <Text style={[s.th, { width: 40 }]}>Heure</Text>
+                <Text style={[s.th, { flex: 1 }]}>Client</Text>
+                <Text style={[s.th, { width: 45 }]}>Op.</Text>
+                <Text style={[s.th, { width: 80, textAlign: "right" }]}>
+                  Montant
+                </Text>
+              </View>
+
+              {paginatedTx.map((tx: any) => (
                 <View
                   key={tx.id}
                   style={[
-                    s.txRow,
+                    s.tableRow,
                     {
                       backgroundColor: dynamicStyles.cardBg,
                       borderColor: dynamicStyles.inputBorder,
                     },
                   ]}
                 >
-                  <Text style={[s.txTime, { color: dynamicStyles.textSub }]}>
+                  <Text style={[s.td, { width: 40, color: "#94A3B8" }]}>
                     {formatTime(tx.created_at)}
                   </Text>
-                  <View style={{ flex: 1, paddingLeft: 4 }}>
-                    <Text style={[s.txOp, { color: dynamicStyles.textMain }]}>
-                      {tx.operateur}
-                    </Text>
-                    {tx.client_nom ? (
-                      <Text
-                        style={{ fontSize: 11, color: dynamicStyles.textSub }}
-                      >
-                        {tx.client_nom}
-                      </Text>
-                    ) : null}
-                  </View>
                   <Text
                     style={[
-                      s.txMontant,
-                      { color: tx.type === "depot" ? "#16A34A" : "#DC2626" },
+                      s.td,
+                      {
+                        flex: 1,
+                        fontWeight: "600",
+                        color: dynamicStyles.textMain,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {tx.client_nom || "—"}
+                  </Text>
+                  <Text
+                    style={[
+                      s.td,
+                      { width: 45, color: dynamicStyles.textSub, fontSize: 11 },
                     ]}
                   >
-                    {tx.type === "depot" ? "+" : "-"}
+                    {tx.operateur.split("-")[0].split(" ")[0]}
+                  </Text>
+                  <Text
+                    style={[
+                      s.td,
+                      {
+                        width: 80,
+                        textAlign: "right",
+                        fontWeight: "700",
+                        color: tx.type === "depot" ? "#16A34A" : "#DC2626",
+                      },
+                    ]}
+                  >
+                    {tx.type === "depot" ? "+" : "-"}{" "}
                     {formatCurrency(tx.montant)}
                   </Text>
                 </View>
-              ))
-            )}
-          </>
-        )}
-        <View style={{ height: 40 }} />
-      </ScrollView>
-    </View>
+              ))}
+
+              {/* PAGINATION */}
+              {totalPages > 1 && (
+                <View style={s.pagination}>
+                  <TouchableOpacity
+                    onPress={() => setPage(Math.max(1, page - 1))}
+                    disabled={page === 1}
+                  >
+                    <Text style={[s.pageBtn, page === 1 && { opacity: 0.2 }]}>
+                      ◀ Précédent
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={[s.pageInfo, { color: dynamicStyles.textSub }]}>
+                    {page} / {totalPages}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setPage(Math.min(totalPages, page + 1))}
+                    disabled={page === totalPages}
+                  >
+                    <Text
+                      style={[
+                        s.pageBtn,
+                        page === totalPages && { opacity: 0.2 },
+                      ]}
+                    >
+                      Suivant ▶
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* SOMMAIRE FINANCIER COMPACTÉ */}
+              <View
+                style={[
+                  s.totauxMiniCard,
+                  {
+                    backgroundColor: isDark ? "#0F172A" : "#F8FAFC",
+                    borderColor: dynamicStyles.inputBorder,
+                  },
+                ]}
+              >
+                <View style={s.miniRow}>
+                  <Text style={s.miniLabel}>
+                    Dépôts:{" "}
+                    <Text style={{ color: "#16A34A", fontWeight: "700" }}>
+                      +{formatCurrency(stats.totalDepots)}
+                    </Text>
+                  </Text>
+                  <Text style={s.miniLabel}>
+                    Retraits:{" "}
+                    <Text style={{ color: "#DC2626", fontWeight: "700" }}>
+                      -{formatCurrency(stats.totalRetraits)}
+                    </Text>
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    s.totauxDivider,
+                    { borderColor: dynamicStyles.inputBorder },
+                  ]}
+                />
+                <View style={s.miniRow}>
+                  <Text
+                    style={[
+                      s.miniLabel,
+                      { fontWeight: "700", color: dynamicStyles.textMain },
+                    ]}
+                  >
+                    Solde théorique global attendu :
+                  </Text>
+                  <Text style={s.globalTotal}>
+                    {formatCurrency(stats.totalTheorique)}
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
+        </>
+      )}
+
+      {/* TAB 2 : MATIN */}
+      {tab === "matin" && (
+        <View
+          style={[
+            s.card,
+            {
+              backgroundColor: dynamicStyles.cardBg,
+              borderColor: dynamicStyles.inputBorder,
+            },
+          ]}
+        >
+          <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
+            🌅 Déclaration du matin
+          </Text>
+          {[
+            { key: "liquide_matin", lbl: "💵 Liquide de caisse initial" },
+            { key: "mm_mpesa_matin", lbl: "📱 Solde Initial M-PESA" },
+            { key: "mm_orange_matin", lbl: "🍊 Solde Initial Orange Money" },
+            { key: "mm_airtel_matin", lbl: "🔴 Solde Initial Airtel Money" },
+          ].map((item) => (
+            <View key={item.key} style={s.inputWrap}>
+              <Text style={[s.inputLabel, { color: dynamicStyles.textSub }]}>
+                {item.lbl}
+              </Text>
+              <TextInput
+                style={[
+                  s.input,
+                  {
+                    backgroundColor: dynamicStyles.inputBg,
+                    borderColor: dynamicStyles.inputBorder,
+                    color: dynamicStyles.textMain,
+                  },
+                ]}
+                keyboardType="numeric"
+                placeholder="0 FC"
+                placeholderTextColor="#64748B"
+                value={(matin as any)[item.key]}
+                onChangeText={(v) => setMatin({ ...matin, [item.key]: v })}
+                editable={!isCloture}
+              />
+            </View>
+          ))}
+          {!isCloture && (
+            <TouchableOpacity
+              style={s.btn}
+              onPress={() => matinMutation.mutate()}
+              disabled={matinMutation.isPending}
+            >
+              {matinMutation.isPending ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={s.btnText}>💾 Enregistrer le matin</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* TAB 3 : SOIR */}
+      {tab === "soir" && (
+        <View
+          style={[
+            s.card,
+            {
+              backgroundColor: dynamicStyles.cardBg,
+              borderColor: dynamicStyles.inputBorder,
+            },
+          ]}
+        >
+          <Text style={[s.cardTitle, { color: dynamicStyles.textMain }]}>
+            🌆 Déclaration du soir
+          </Text>
+          <Text style={[s.infoText, { color: dynamicStyles.textSub }]}>
+            Saisissez le solde réel des puces. Écart basé uniquement sur la
+            déclaration brute du matin.
+          </Text>
+
+          {OPERATEURS.map((op) => {
+            const keyMatin =
+              op === "M-PESA"
+                ? "mm_mpesa_matin"
+                : op === "Orange Money"
+                  ? "mm_orange_matin"
+                  : "mm_airtel_matin";
+            const keySoir =
+              op === "M-PESA"
+                ? "mm_mpesa_soir"
+                : op === "Orange Money"
+                  ? "mm_orange_soir"
+                  : "mm_airtel_soir";
+            const soldeMatin = Number(caisse?.[keyMatin]) || 0;
+            const soldeReelSaisi = parseInt((soir as any)[keySoir]);
+            const ecart = !isNaN(soldeReelSaisi)
+              ? soldeReelSaisi - soldeMatin
+              : null;
+
+            return (
+              <View
+                key={op}
+                style={[
+                  s.soirBlock,
+                  { borderBottomColor: dynamicStyles.borderSeparator },
+                ]}
+              >
+                <Text style={[s.soirOp, { color: dynamicStyles.textMain }]}>
+                  📱 {op}
+                </Text>
+                <View style={s.soirRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.soirLbl}>Matin</Text>
+                    <Text
+                      style={[s.soirVal, { color: dynamicStyles.textMain }]}
+                    >
+                      {formatCurrency(soldeMatin)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.soirLbl}>Solde Réel Puce</Text>
+                    <TextInput
+                      style={[
+                        s.input,
+                        {
+                          backgroundColor: dynamicStyles.inputBg,
+                          borderColor: dynamicStyles.inputBorder,
+                          color: dynamicStyles.textMain,
+                          marginBottom: 0,
+                          height: 38,
+                        },
+                      ]}
+                      keyboardType="numeric"
+                      placeholder="Solde réel"
+                      placeholderTextColor="#64748B"
+                      value={(soir as any)[keySoir]}
+                      onChangeText={(v) => setSoir({ ...soir, [keySoir]: v })}
+                      editable={!isCloture}
+                    />
+                  </View>
+                </View>
+                {ecart !== null && (
+                  <View
+                    style={[
+                      s.ecartBox,
+                      {
+                        backgroundColor:
+                          ecart === 0
+                            ? isDark
+                              ? "#064E3B"
+                              : "#F0FDF4"
+                            : isDark
+                              ? "#7F1D1D"
+                              : "#FEF2F2",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: ecart === 0 ? "#10B981" : "#EF4444",
+                        fontSize: 11,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {ecart === 0
+                        ? "✅ Aucun écart direct"
+                        : `⚠️ Écart direct : ${ecart > 0 ? "+" : ""}${formatCurrency(ecart)}`}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+
+          {!isCloture && (
+            <TouchableOpacity
+              style={s.btn}
+              onPress={() => soirMutation.mutate()}
+              disabled={soirMutation.isPending}
+            >
+              {soirMutation.isPending ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={s.btnText}>💾 Enregistrer le soir</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+    </ScreenContainer>
   );
 }
 
 const s = StyleSheet.create({
-  main: { flex: 1 },
-  header: { paddingHorizontal: spacing.lg, paddingTop: 20, paddingBottom: 20 },
-  title: { fontSize: 22, fontWeight: "bold", color: "#FFF" },
-  subtitle: { fontSize: 13, fontWeight: "700", marginTop: 4 },
-  content: {
-    flex: 1,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: spacing.md,
-  },
-
-  soldeRow: { flexDirection: "row", gap: spacing.xs, marginBottom: spacing.md },
+  title: { fontSize: 20, fontWeight: "bold", color: "#FFF" },
+  soldeRow: { flexDirection: "row", gap: 4, marginBottom: spacing.sm },
   soldeCard: {
     flex: 1,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 10,
+    padding: 8,
     alignItems: "center",
     borderWidth: 1,
   },
-  soldeName: { fontSize: 11, fontWeight: "700" },
+  soldeName: { fontSize: 9, fontWeight: "700" },
   soldeValue: {
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: "800",
     color: "#3B82F6",
     marginTop: 2,
   },
 
-  tabs: { flexDirection: "row", gap: spacing.xs, marginBottom: spacing.md },
+  tabs: { flexDirection: "row", gap: 6, marginBottom: spacing.sm },
   tab: {
     flex: 1,
-    height: 40,
-    borderRadius: 10,
+    height: 36,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
   tabActive: { backgroundColor: "#3B82F6" },
-  tabText: { fontSize: 13, fontWeight: "700", color: "#64748B" },
+  tabText: { fontSize: 12, fontWeight: "700" },
   tabTextActive: { color: "#FFF" },
 
   msg: {
     color: "#16A34A",
     textAlign: "center",
-    marginBottom: spacing.sm,
-    fontSize: 13,
-    fontWeight: "600",
+    marginBottom: spacing.xs,
+    fontSize: 12,
+    fontWeight: "700",
   },
   card: {
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    borderRadius: 12,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
     borderWidth: 1,
   },
-  cardTitle: { fontSize: 15, fontWeight: "800", marginBottom: spacing.md },
-  infoText: { fontSize: 13, marginBottom: spacing.md, lineHeight: 18 },
+  inlineHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  cardTitle: { fontSize: 14, fontWeight: "800" },
+  infoText: { fontSize: 11, marginBottom: spacing.sm, lineHeight: 15 },
 
-  inputWrapper: { marginBottom: spacing.sm },
+  inputWrap: { marginBottom: spacing.xs },
   inputLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
-    marginBottom: 4,
-    letterSpacing: 0.3,
+    marginBottom: 2,
+    textTransform: "uppercase",
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 48,
-    fontSize: 15,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 40,
+    fontSize: 13,
   },
 
-  chips: {
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: spacing.sm,
-    flexWrap: "wrap",
-  },
+  chipsCompact: { flexDirection: "row", gap: 4, marginBottom: spacing.sm },
   chip: {
-    paddingHorizontal: 14,
-    height: 36,
-    borderRadius: 18,
+    flex: 1,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "transparent",
   },
-  chipActive: { backgroundColor: "#1E3A8A" },
-  chipText: { fontSize: 12, fontWeight: "700" },
+  chipActive: { backgroundColor: "#3B82F6" },
+  chipText: { fontSize: 11, fontWeight: "700" },
   chipTextActive: { color: "#FFF" },
 
-  typeRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md },
-  typeBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+  typeRowCompact: {
+    flexDirection: "row",
+    borderRadius: 6,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#334155",
   },
+  miniTypeBtn: {
+    paddingHorizontal: 10,
+    height: 26,
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  miniTypeBtnText: { color: "#FFF", fontSize: 11, fontWeight: "600" },
   typeDepot: { backgroundColor: "#16A34A" },
   typeRetrait: { backgroundColor: "#DC2626" },
-  typeText: { fontSize: 13, fontWeight: "700" },
 
   btn: {
     backgroundColor: "#3B82F6",
-    borderRadius: 12,
-    height: 48,
+    borderRadius: 8,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: spacing.xs,
   },
   btnGreen: { backgroundColor: "#16A34A" },
-  btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
+  btnText: { color: "#FFF", fontWeight: "700", fontSize: 13 },
 
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.5,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-    paddingLeft: 2,
+    marginBottom: 4,
   },
-  empty: { textAlign: "center", padding: 24, fontSize: 13 },
+  empty: { textAlign: "center", padding: 10, fontSize: 12 },
 
-  txRow: {
+  formRow: { flexDirection: "row", gap: 4, marginBottom: spacing.xs },
+  formInput: { flex: 1 },
+
+  tableHeader: {
+    flexDirection: "row",
+    borderRadius: 6,
+    padding: 6,
+    marginBottom: 2,
+  },
+  th: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#64748B",
+    textTransform: "uppercase",
+  },
+  tableRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 14,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 2,
     borderWidth: 1,
   },
-  txTime: { fontSize: 11, fontWeight: "500", width: 45 },
-  txOp: { fontSize: 14, fontWeight: "700" },
-  txMontant: { fontSize: 14, fontWeight: "800" },
+  td: { fontSize: 11 },
+
+  pagination: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginVertical: 2,
+  },
+  pageBtn: { color: "#3B82F6", fontWeight: "700", fontSize: 12, padding: 4 },
+  pageInfo: { fontSize: 11 },
+
+  soirBlock: {
+    marginBottom: spacing.sm,
+    borderBottomWidth: 1,
+    paddingBottom: spacing.xs,
+  },
+  soirOp: { fontSize: 12, fontWeight: "800", marginBottom: 2 },
+  soirRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  soirLbl: { fontSize: 9, color: "#94A3B8" },
+  soirVal: { fontSize: 12, fontWeight: "800" },
+  ecartBox: { borderRadius: 6, padding: 6, marginTop: 4 },
+
+  totauxMiniCard: {
+    borderRadius: 10,
+    padding: 8,
+    marginTop: spacing.xs,
+    borderWidth: 1,
+  },
+  miniRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  miniLabel: { fontSize: 11, color: "#64748B" },
+  globalTotal: { fontSize: 14, fontWeight: "900", color: "#3B82F6" },
+  totauxDivider: { height: 1, borderTopWidth: 1, marginVertical: 4 },
 });
