@@ -10,16 +10,16 @@ import {
   Dimensions,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useAuth } from "../context/AuthContext"; // Import du hook global
 import { colors, spacing } from "../theme";
 
 const { width } = Dimensions.get("window");
 const CARD_WIDTH = (width - spacing.md * 2 - spacing.sm) / 2;
 
 export default function PlusScreen({ navigation }: any) {
-  const systemTheme = useColorScheme();
-  const isDark = systemTheme === "dark";
+  const isDark = useColorScheme() === "dark";
+  const { logout } = useAuth(); // Récupération de la méthode de déconnexion
 
-  // Thème dynamique adaptatif
   const dynamicStyles = {
     mainBg: isDark ? "#0F172A" : "#1E3A8A",
     contentBg: isDark ? "#1E293B" : "#F1F5F9",
@@ -54,20 +54,6 @@ export default function PlusScreen({ navigation }: any) {
       screen: "Archives",
     },
   ];
-
-  const handleLogout = async () => {
-    try {
-      const AsyncStorage =
-        require("@react-native-async-storage/async-storage").default;
-      await AsyncStorage.removeItem("@shop_token");
-      await AsyncStorage.removeItem("@shop_user");
-
-      // Si tu utilises React Navigation avec un AuthContext ou un état global,
-      // déclenche le re-rendu ici. Sinon, tu peux forcer une redirection.
-    } catch (error) {
-      console.error("Erreur lors de la déconnexion :", error);
-    }
-  };
 
   return (
     <View style={[s.main, { backgroundColor: dynamicStyles.mainBg }]}>
@@ -117,7 +103,7 @@ export default function PlusScreen({ navigation }: any) {
           ))}
         </View>
 
-        {/* Bouton Déconnexion (Hauteur 48px tactile optimisée) */}
+        {/* Bouton Déconnexion lié au contexte global */}
         <TouchableOpacity
           style={[
             s.logout,
@@ -126,7 +112,7 @@ export default function PlusScreen({ navigation }: any) {
               borderColor: dynamicStyles.logoutBorder,
             },
           ]}
-          onPress={handleLogout}
+          onPress={logout}
           activeOpacity={0.8}
         >
           <Text style={[s.logoutText, { color: dynamicStyles.logoutText }]}>
@@ -151,7 +137,6 @@ const s = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: spacing.md,
   },
-
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -168,7 +153,6 @@ const s = StyleSheet.create({
   cardIcon: { fontSize: 28, marginBottom: 6 },
   cardTitle: { fontSize: 14, fontWeight: "800", marginBottom: 4 },
   cardDesc: { fontSize: 12, lineHeight: 16 },
-
   logout: {
     borderRadius: 12,
     height: 52,

@@ -1,34 +1,33 @@
-import { View, Text, TextInput, StyleSheet } from "react-native";
+// src/components/Input.tsx
+import React from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  TextInputProps,
+} from "react-native";
 import { colors, borderRadius, spacing, minButtonHeight } from "../theme";
 
-interface Props {
+// On hérite de toutes les propriétés standard d'un TextInput de React Native
+interface Props extends TextInputProps {
   label: string;
-  value: string;
-  onChangeText: (t: string) => void;
-  placeholder?: string;
-  keyboardType?: "default" | "numeric";
-  editable?: boolean;
 }
 
 export default function Input({
   label,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType = "default",
+  style,
   editable = true,
+  ...restOfProps // Regroupe value, onChangeText, placeholder, secureTextEntry, etc.
 }: Props) {
   return (
     <View style={s.wrap}>
       <Text style={s.label}>{label}</Text>
       <TextInput
-        style={[s.input, !editable && s.disabled]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        keyboardType={keyboardType}
+        style={[s.input, !editable && s.disabled, style]}
         editable={editable}
         placeholderTextColor={colors.textSecondary}
+        {...restOfProps} // Injecte automatiquement toutes les props restantes au vrai TextInput
       />
     </View>
   );

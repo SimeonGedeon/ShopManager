@@ -1,5 +1,4 @@
 // src/navigation/AppNavigator.tsx
-
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -9,6 +8,8 @@ import {
   DarkTheme,
 } from "@react-navigation/native";
 import { Text, useColorScheme } from "react-native";
+import HomeScreen from "../screens/HomeScreen";
+import LoginScreen from "../screens/LoginScreen";
 import DashboardScreen from "../screens/DashboardScreen";
 import StocksScreen from "../screens/StocksScreen";
 import MMScreen from "../screens/MMScreen";
@@ -20,10 +21,10 @@ import SettingsScreen from "../screens/SettingsScreen";
 import ArchivesScreen from "../screens/ArchivesScreen";
 import { colors } from "../theme";
 
+const RootStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const PlusStack = createNativeStackNavigator();
 
-// Composant d'icône épuré avec gestion de l'opacité
 const TabIcon = ({ emoji, focused }: { emoji: string; focused: boolean }) => (
   <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.4 }}>{emoji}</Text>
 );
@@ -40,106 +41,105 @@ function PlusStackScreen() {
   );
 }
 
-export default function AppNavigator() {
+function MainTabNavigator({ navStyles, isDark }: any) {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: navStyles.inactiveText,
+        tabBarStyle: {
+          backgroundColor: navStyles.tabBarBg,
+          borderTopColor: navStyles.tabBarBorder,
+          height: 64,
+          paddingBottom: 8,
+          paddingTop: 6,
+          elevation: 8,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: isDark ? 0.2 : 0.05,
+          shadowRadius: 3,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "600",
+          letterSpacing: 0.2,
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Accueil"
+        component={DashboardScreen}
+        options={{
+          tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
+        }}
+      />
+      <Tab.Screen
+        name="Stocks"
+        component={StocksScreen}
+        options={{
+          tabBarIcon: ({ focused }) => <TabIcon emoji="📦" focused={focused} />,
+        }}
+      />
+      <Tab.Screen
+        name="MM"
+        component={MMScreen}
+        options={{
+          tabBarIcon: ({ focused }) => <TabIcon emoji="📱" focused={focused} />,
+        }}
+      />
+      <Tab.Screen
+        name="Caisse"
+        component={CaisseScreen}
+        options={{
+          tabBarIcon: ({ focused }) => <TabIcon emoji="💵" focused={focused} />,
+        }}
+      />
+      <Tab.Screen
+        name="Plus"
+        component={PlusStackScreen}
+        options={{
+          tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" focused={focused} />,
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+export default function AppNavigator({ isAuth }: { isAuth: boolean }) {
   const systemTheme = useColorScheme();
   const isDark = systemTheme === "dark";
 
-  // Palette adaptative pour la structure de navigation basse
   const navStyles = {
     tabBarBg: isDark ? "#1E293B" : "#FFFFFF",
     tabBarBorder: isDark ? "#334155" : "#E2E8F0",
     inactiveText: isDark ? "#94A3B8" : "#64748B",
   };
 
-  // Thèmes globaux personnalisés pour éviter les flashs de fonds d'écrans natifs
-  const customLightTheme = {
-    ...DefaultTheme,
-    colors: {
-      ...DefaultTheme.colors,
-      background: "#F1F5F9",
-    },
-  };
-
-  const customDarkTheme = {
-    ...DarkTheme,
-    colors: {
-      ...DarkTheme.colors,
-      background: "#1E293B",
-    },
-  };
-
   return (
-    <NavigationContainer theme={isDark ? customDarkTheme : customLightTheme}>
-      <Tab.Navigator
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: navStyles.inactiveText,
-          tabBarStyle: {
-            backgroundColor: navStyles.tabBarBg,
-            borderTopColor: navStyles.tabBarBorder,
-            height: 64,
-            paddingBottom: 8,
-            paddingTop: 6,
-            elevation: 8,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: isDark ? 0.2 : 0.05,
-            shadowRadius: 3,
-          },
-          tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: "600",
-            letterSpacing: 0.2,
-          },
-        }}
-      >
-        <Tab.Screen
-          name="Accueil"
-          component={DashboardScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon emoji="🏠" focused={focused} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Stocks"
-          component={StocksScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon emoji="📦" focused={focused} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="MM"
-          component={MMScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon emoji="📱" focused={focused} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Caisse"
-          component={CaisseScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon emoji="💵" focused={focused} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Plus"
-          component={PlusStackScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon emoji="⚙️" focused={focused} />
-            ),
-          }}
-        />
-      </Tab.Navigator>
+    <NavigationContainer theme={isDark ? DarkTheme : DefaultTheme}>
+      <RootStack.Navigator screenOptions={{ headerShown: false }}>
+        {!isAuth ? (
+          <>
+            <RootStack.Screen name="Home" component={HomeScreen} />
+            <RootStack.Screen
+              name="Login"
+              component={LoginScreen}
+              options={{ presentation: "modal" }}
+            />
+          </>
+        ) : (
+          <RootStack.Screen name="MainTabs">
+            {(props) => (
+              <MainTabNavigator
+                {...props}
+                navStyles={navStyles}
+                isDark={isDark}
+              />
+            )}
+          </RootStack.Screen>
+        )}
+      </RootStack.Navigator>
     </NavigationContainer>
   );
 }
